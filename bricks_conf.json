@@ -1,0 +1,215 @@
+{
+  "genie_space": {
+    "config": {
+      "id": "01f11d1809eb1a109ecec68f8b72904b",
+      "space_id": "01f11d1809eb1a109ecec68f8b72904b",
+      "display_name": "ReNew AI Week - Portfolio Performance & Firmware Impact (Genie AI-BI)",
+      "description": "Genie space for ReNew_AI_Week demo with curated questions and SQL instructions",
+      "warehouse_id": "862f1d757f0424f7",
+      "created_timestamp": 1773212450805,
+      "last_updated_timestamp": 1773212456976,
+      "table_identifiers": [
+        "main.madan_gopal.gold_daily_generation",
+        "main.madan_gopal.gold_asset_availability",
+        "main.madan_gopal.gold_revenue_variance",
+        "main.madan_gopal.gold_om_costs",
+        "main.madan_gopal.gold_firmware_impact"
+      ],
+      "user_id": 4852076947906652,
+      "run_as_type": "VIEWER",
+      "folder_node_internal_name": "tree/3374076528411028",
+      "suggestion_description": "This space enables investigation of the November 2025 portfolio performance drop at ReNew, quantifying the operational, financial, and O&M impact of a major inverter firmware rollout.\n\n**Capabilities:**\n- Track daily portfolio net generation vs. baseline, highlighting the timing and size of the post-2025-11-21 step-change.\n- Analyze generation losses by plant and asset type, with focus on weekday curtailment and three Texas solar plants.\n- Compare equipment availability and downtime by inverter model and firmware version, pinpointing XG-440 inverter issues.\n- Quantify financial losses (merchant revenue, penalties, imbalance charges) and cumulative impact by plant.\n- Assess O&M cost increases and dispatch patterns by work order type and vendor.\n- Correlate firmware rollouts and hotfixes to changes in availability, event counts, and financial losses at plant level.\n\n**Limitations:**\n- Limited to the 2025-10-15 to 2025-12-15 period and synthetic dataset conventions (e.g., always-true curtailment flag).\n- Does not provide underlying root-cause diagnostics beyond empirical correlations.\n- Firmware versioning for some equipment may be incomplete due to data gaps.",
+      "suggestion_description_status": "SUGGESTION_PROPOSED",
+      "suggestion_description_created_timestamp": 1773212456970
+    },
+    "sample_questions": [
+      {
+        "question_text": "What weekday curtailment pattern explains the recurring lost production, and how do stacked curtailment windows correlate with net MWh variance in the affected plants?"
+      },
+      {
+        "question_text": "How much incremental O&M spend was incurred through 2025-12-15, and which work order types and vendors drove it?"
+      },
+      {
+        "question_text": "How much cumulative merchant revenue was lost and how much was driven by penalties and imbalance charges through 2025-12-15?"
+      },
+      {
+        "question_text": "What firmware versions were running before and after the 2025-11-20 to 2025-11-21 rollout, and how do vendor tickets align with the onset of increased trips and derates?"
+      },
+      {
+        "question_text": "How did availability change by equipment type and inverter model, and how much of the downtime is attributable to XG-440 inverters post-firmware rollout?"
+      },
+      {
+        "question_text": "Which plants and asset types contributed most to the variance after 2025-11-21, and did wind remain stable while three Texas solar plants drove the drop?"
+      },
+      {
+        "question_text": "When did portfolio net generation first break from the 30-day baseline, and what was the magnitude of the drop starting 2025-11-21?"
+      }
+    ],
+    "benchmarks": [],
+    "instructions": [
+      {
+        "title": "Notes",
+        "content": "This Genie space supports executive and analyst workflows to detect and explain the 2025-11-21 step-change in portfolio net generation and quantify the resulting financial and O&M impact.\n\nData model (gold-first):\n- Use gold_daily_generation for net MWh, baseline_mwh (30-day trailing baseline), variance_mwh, and curtailment_window_minutes at plant-day grain.\n- Use gold_asset_availability for daily availability_pct/downtime_minutes by plant, equipment_type, inverter_model, and firmware_version.\n- Use gold_revenue_variance for daily settlement financials vs baseline, including lost_revenue_usd, penalties_usd, imbalance_charges_usd, and cumulative_impact_usd.\n- Use gold_om_costs for O&M spend, corrective work order counts, and cost_per_mwh_usd.\n- Use gold_firmware_impact to quickly align firmware rollout/hotfix flags with operational metrics (availability, downtime, alarm codes), corrective WOs, and daily $ impact.\n\nBusiness logic / conventions:\n- Incident window: 2025-11-21 through 2025-12-15. Baseline period: 2025-10-22 through 2025-11-20.\n- Penalties and imbalance charges are stored as negative numbers; use ABS() when summing \u201cimpact\u201d components.\n- For portfolio rollups, sum plant-level daily rows; for comparisons by asset type, group by asset_type and/or state.\n\nData considerations:\n- curtailment_flag_any is always true in this synthetic dataset; rely on curtailment_window_minutes for meaningful variation.\n- Some firmware_version fields may be 'unknown' depending on equipment/telemetry capture; use gold_firmware_impact.firmware_version_mode for a robust daily mode value when correlating to tickets/rollout timing.",
+        "instruction_type": "TEXT_INSTRUCTION"
+      },
+      {
+        "title": "Portfolio net generation vs 30-day baseline (daily)",
+        "content": "-- Portfolio daily net MWh vs baseline (sum across plants)\nSELECT\n  settlement_day,\n  SUM(net_mwh)               AS portfolio_net_mwh,\n  SUM(baseline_mwh)          AS portfolio_baseline_mwh,\n  SUM(variance_mwh)          AS portfolio_variance_mwh\nFROM main.madan_gopal.gold_daily_generation\nWHERE settlement_day BETWEEN DATE('2025-10-15') AND DATE('2025-12-15')\nGROUP BY settlement_day\nORDER BY settlement_day;",
+        "instruction_type": "SQL_INSTRUCTION"
+      },
+      {
+        "title": "Localize the drop: variance by plant and asset type (post 2025-11-21)",
+        "content": "-- Identify which plants drove the post-event generation shortfall\nSELECT\n  plant_id,\n  plant_name,\n  state,\n  asset_type,\n  SUM(variance_mwh) AS total_variance_mwh\nFROM main.madan_gopal.gold_daily_generation\nWHERE settlement_day BETWEEN DATE('2025-11-21') AND DATE('2025-12-15')\nGROUP BY plant_id, plant_name, state, asset_type\nORDER BY total_variance_mwh ASC;",
+        "instruction_type": "SQL_INSTRUCTION"
+      },
+      {
+        "title": "Availability impact: XG-440 vs other models (pre vs post)",
+        "content": "-- Compare inverter availability pre/post anomaly start\nWITH base AS (\n  SELECT\n    CASE\n      WHEN settlement_day BETWEEN DATE('2025-10-22') AND DATE('2025-11-20') THEN 'baseline_30d'\n      WHEN settlement_day BETWEEN DATE('2025-11-21') AND DATE('2025-12-15') THEN 'post_event'\n      ELSE 'other'\n    END AS period,\n    equipment_type,\n    inverter_model,\n    AVG(CAST(availability_pct AS DOUBLE)) AS avg_availability_pct,\n    SUM(downtime_minutes)                 AS downtime_minutes,\n    SUM(trip_event_count)                 AS trip_events,\n    SUM(derate_event_count)               AS derate_events\n  FROM main.madan_gopal.gold_asset_availability\n  WHERE settlement_day BETWEEN DATE('2025-10-22') AND DATE('2025-12-15')\n  GROUP BY 1,2,3\n)\nSELECT *\nFROM base\nWHERE period IN ('baseline_30d','post_event')\nORDER BY equipment_type, inverter_model, period;",
+        "instruction_type": "SQL_INSTRUCTION"
+      },
+      {
+        "title": "Quantify financial impact through 2025-12-15 (portfolio + by plant)",
+        "content": "-- Portfolio-level impact components during the incident window\nSELECT\n  SUM(lost_revenue_usd)           AS lost_revenue_usd,\n  SUM(ABS(penalties_usd))         AS penalties_usd_abs,\n  SUM(ABS(imbalance_charges_usd)) AS imbalance_charges_usd_abs,\n  SUM(lost_revenue_usd + ABS(penalties_usd) + ABS(imbalance_charges_usd)) AS total_impact_usd\nFROM main.madan_gopal.gold_revenue_variance\nWHERE settlement_day BETWEEN DATE('2025-11-21') AND DATE('2025-12-15');\n\n-- By plant (to show concentration in 3 TX solar plants)\nSELECT\n  plant_id, plant_name, state, asset_type,\n  SUM(lost_revenue_usd + ABS(penalties_usd) + ABS(imbalance_charges_usd)) AS total_impact_usd\nFROM main.madan_gopal.gold_revenue_variance\nWHERE settlement_day BETWEEN DATE('2025-11-21') AND DATE('2025-12-15')\nGROUP BY plant_id, plant_name, state, asset_type\nORDER BY total_impact_usd DESC;",
+        "instruction_type": "SQL_INSTRUCTION"
+      },
+      {
+        "title": "Firmware alignment + operational evidence (use curated impact table)",
+        "content": "-- Tie rollout/hotfix flags to net MWh variance, availability, and top trip codes\nSELECT\n  settlement_day,\n  plant_name,\n  inverter_model,\n  firmware_version_mode,\n  rollout_flag,\n  hotfix_flag,\n  net_mwh_variance_total,\n  availability_pct,\n  downtime_minutes,\n  top_alarm_code,\n  corrective_wo_count,\n  (lost_revenue_usd + ABS(penalties_usd) + ABS(imbalance_charges_usd)) AS daily_impact_usd\nFROM main.madan_gopal.gold_firmware_impact\nWHERE state = 'TX'\n  AND asset_type = 'solar'\n  AND settlement_day BETWEEN DATE('2025-11-15') AND DATE('2025-12-15')\nORDER BY settlement_day, plant_name;",
+        "instruction_type": "SQL_INSTRUCTION"
+      }
+    ]
+  },
+  "knowledge_assistant": {
+    "config": {
+      "knowledge_assistant": {
+        "tile": {
+          "tile_id": "b76cd4b8-40c1-4e7f-9ac8-59353fa35c73",
+          "name": "DBGEN_ReNew_Portfolio_Firmware_Incident_KA",
+          "tile_type": "KA",
+          "mlflow_experiment_id": "3374076528411260",
+          "creation_timestamp_ms": 1773212737194,
+          "last_updated_timestamp_ms": 1773212755975,
+          "serving_endpoint_name": "ka-b76cd4b8-endpoint",
+          "creator": "madan.gopal@databricks.com",
+          "creator_display_name": "Madan Gopal",
+          "description": "Knowledge Assistant for ReNew Capital Partners\u2019 ERCOT portfolio performance anomaly (XG-440 inverter firmware incident). Indexes vendor firmware release notes, rollout/hotfix change tickets, O&M incident/postmortem, dispatch runbooks, and settlement/imbalance guidance to support root-cause analysis, operational troubleshooting, and impact quantification.",
+          "instructions": "You are a professional Asset Performance & Operations assistant for a renewable portfolio. Use ONLY the indexed documents as primary source of truth; if the answer is not in the documents, say so and suggest what to check next. When applicable, include exact firmware versions, trip/derate codes (e.g., TRIP-31, TRIP-44), dates (rollout 2025-11-20 to 2025-11-21; hotfix 2025-12-08), affected scope (plants/serial ranges), and the prescribed rollback/mitigation steps. Provide step-by-step troubleshooting and dispatch guidance mapping SCADA alarms to CMMS work order templates. For settlement questions, reference ERCOT penalty/imbalance calculation fields and reconciliation steps. Keep responses concise, cite the document name and page when possible, and separate 'What happened', 'How to validate', and 'Recommended actions'.",
+          "evaluation_run_exists": false,
+          "acl_enabled": true
+        },
+        "knowledge_sources": [
+          {
+            "files_source": {
+              "name": "vendor_firmware_and_incident_pack",
+              "type": "files",
+              "description": "",
+              "files": {
+                "path": "/Volumes/main/madan_gopal/raw_data/pdf/vendor_firmware_and_incident_pack"
+              }
+            },
+            "state": "KNOWLEDGE_SOURCE_STATE_UPDATED",
+            "last_successful_update_timestamp_ms": 1773212737194,
+            "latest_update_timestamp_ms": 1773212737194,
+            "knowledge_source_id": "4012b8fd-4b5d-4a24-9466-9a2dfc671eb2",
+            "indexed_row_count": 136,
+            "file_source_index_info": {
+              "summary": {
+                "total_files": 10,
+                "success_files": 10,
+                "skipped_files": 0,
+                "failed_files": 0
+              },
+              "files_by_type": {
+                "pdf": 10
+              },
+              "outcome": "SUCCESS",
+              "version": 2,
+              "should_migrate": false,
+              "migration_outcome": "UNDEFINED",
+              "job_start_time_ms": 1773212755446,
+              "embedding_model": "databricks-gte-large-en",
+              "self_managed_embeddings": true,
+              "vector_count": 136
+            },
+            "creation_timestamp_ms": 1773212737194
+          }
+        ],
+        "status": {
+          "endpoint_status": "ONLINE"
+        },
+        "id": "b76cd4b8-40c1-4e7f-9ac8-59353fa35c73",
+        "name": "DBGEN_ReNew_Portfolio_Firmware_Incident_KA",
+        "description": "Knowledge Assistant for ReNew Capital Partners\u2019 ERCOT portfolio performance anomaly (XG-440 inverter firmware incident). Indexes vendor firmware release notes, rollout/hotfix change tickets, O&M incident/postmortem, dispatch runbooks, and settlement/imbalance guidance to support root-cause analysis, operational troubleshooting, and impact quantification.",
+        "instructions": "You are a professional Asset Performance & Operations assistant for a renewable portfolio. Use ONLY the indexed documents as primary source of truth; if the answer is not in the documents, say so and suggest what to check next. When applicable, include exact firmware versions, trip/derate codes (e.g., TRIP-31, TRIP-44), dates (rollout 2025-11-20 to 2025-11-21; hotfix 2025-12-08), affected scope (plants/serial ranges), and the prescribed rollback/mitigation steps. Provide step-by-step troubleshooting and dispatch guidance mapping SCADA alarms to CMMS work order templates. For settlement questions, reference ERCOT penalty/imbalance calculation fields and reconciliation steps. Keep responses concise, cite the document name and page when possible, and separate 'What happened', 'How to validate', and 'Recommended actions'.",
+        "creator": "madan.gopal@databricks.com",
+        "creation_timestamp": 1773212737194,
+        "endpoint_name": "ka-b76cd4b8-endpoint",
+        "experiment_id": "3374076528411260"
+      }
+    },
+    "knowledge_sources": [
+      {
+        "files_source": {
+          "name": "vendor_firmware_and_incident_pack",
+          "type": "files",
+          "description": "",
+          "files": {
+            "path": "/Volumes/main/madan_gopal/raw_data/pdf/vendor_firmware_and_incident_pack"
+          }
+        }
+      }
+    ],
+    "examples": []
+  },
+  "multi_agent_supervisor": {
+    "config": {
+      "multi_agent_supervisor": {
+        "tile": {
+          "name": "DBGEN_ReNew_Portfolio_Firmware_Supervisor",
+          "description": "Multi-Agent Supervisor for ReNew Capital Partners\u2019 ERCOT portfolio firmware incident. Routes questions between the Genie data analytics agent (quantitative performance, financial, and O&M data) and the Knowledge Assistant document agent (firmware release notes, incident reports, dispatch runbooks, and ERCOT settlement guidance).",
+          "instructions": "You are the ReNew Portfolio Performance & Firmware Incident Supervisor. Your role is to triage each question and route it to the most appropriate sub-agent:\n\n- Route to the **Genie Data Analytics Agent** for any quantitative, data-driven, or trend-based questions: portfolio net generation vs baseline, plant-level variance, XG-440 availability and downtime metrics, financial impact (revenue lost, penalties, imbalance charges), O&M spend by vendor or work order type, curtailment window analysis, or any question that requires aggregating or filtering data tables.\n\n- Route to the **Knowledge Assistant Document Agent** for document-based questions: exact firmware version numbers, trip/derate alarm codes (e.g. TRIP-31, TRIP-44), change ticket details, rollout/hotfix scope and serial ranges, prescribed rollback or mitigation steps, SCADA-to-CMMS dispatch runbook guidance, ERCOT penalty/imbalance calculation methodology, or any question answered by vendor documentation or incident reports.\n\n- For questions spanning both domains (e.g. \u201cWhat firmware caused the drop and how much revenue did we lose?\u201d), call both agents and synthesize a combined answer, clearly labelling which facts come from documents vs data.\n\nAlways be concise, cite sources (document name or table name), and structure your response as: **Finding**, **Evidence**, **Recommended Action**."
+        },
+        "agents": [
+          {
+            "name": "Genie_Data_Analytics_Agent",
+            "description": "Answers quantitative questions about portfolio net generation, equipment availability, financial impact, O&M costs, and curtailment patterns by querying gold-layer Delta tables (gold_daily_generation, gold_asset_availability, gold_revenue_variance, gold_om_costs, gold_firmware_impact) covering the 2025-10-15 to 2025-12-15 incident window.",
+            "agent_type": "genie-space"
+          },
+          {
+            "name": "Knowledge_Assistant_Document_Agent",
+            "description": "Answers document-based questions using indexed vendor firmware release notes, rollout/hotfix change tickets, O&M incident postmortem, SCADA-to-CMMS dispatch runbooks, and ERCOT settlement/imbalance guidance for the XG-440 inverter firmware incident.",
+            "agent_type": "serving-endpoint"
+          }
+        ]
+      }
+    },
+    "examples": [
+      {
+        "question": "What caused the portfolio net generation drop on 2025-11-21, and what was the total financial impact through December 15?",
+        "guidelines": ["Use the Genie agent to quantify the MWh variance and financial losses, and the KA agent to identify the firmware root cause and affected scope."]
+      },
+      {
+        "question": "Which plants and inverter models were affected by the XG-440 firmware rollout, and how much did their availability decline?",
+        "guidelines": ["Route to both agents: Genie for availability metrics, KA for firmware scope and serial ranges."]
+      },
+      {
+        "question": "What are the TRIP-31 and TRIP-44 alarm codes, and how should dispatch teams respond to them?",
+        "guidelines": ["Route to the Knowledge Assistant for alarm code definitions and dispatch runbook steps."]
+      },
+      {
+        "question": "How much cumulative O&M spend was incurred after the firmware rollout, and which vendors drove the corrective work?",
+        "guidelines": ["Route to the Genie agent for O&M cost breakdown by vendor and work order type."]
+      },
+      {
+        "question": "What does the hotfix released on 2025-12-08 address, and did availability recover after it was applied?",
+        "guidelines": ["Use KA for hotfix details and Genie for post-hotfix availability trends."]
+      }
+    ]
+  },
+  "dashboards": {
+    "renew_portfolio_exec": {
+      "title": "ReNew Portfolio Performance and Firmware Impact",
+      "id": "01f11d1844d71364af2687d663142dd6"
+    }
+  }
+}

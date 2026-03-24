@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Node
+node_modules/
+
+# Databricks bundle state
+.databricks/
+
+# macOS
+.DS_Store
+
+# Build artifacts
+app/frontend/dist/

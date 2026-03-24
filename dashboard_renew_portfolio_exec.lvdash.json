@@ -1,0 +1,1231 @@
+{
+  "datasets": [
+    {
+      "name": "ds_generation",
+      "displayName": "Daily Net Generation (Gold)",
+      "queryLines": [
+        "SELECT   settlement_day,   plant_id,   plant_name,   state,   region,   asset_type,   day_of_week,   CASE day_of_week     WHEN 1 THEN 'Mon'     WHEN 2 THEN 'Tue'     WHEN 3 THEN 'Wed'     WHEN 4 THEN 'Thu'     WHEN 5 THEN 'Fri'     WHEN 6 THEN 'Sat'     WHEN 7 THEN 'Sun'     ELSE 'Unknown'   END AS day_of_week_name,   net_mwh,   baseline_mwh,   (baseline_mwh - net_mwh) AS lost_mwh,   variance_mwh,   curtailment_window_minutes,   CAST(curtailment_flag_any AS STRING) AS curtailment_flag_any_str FROM main.madan_gopal.gold_daily_generation ORDER BY settlement_day "
+      ]
+    },
+    {
+      "name": "ds_generation_last30d_kpi",
+      "displayName": "KPI Window: Generation Last 30 Days",
+      "queryLines": [
+        "WITH g AS (   SELECT     settlement_day,     plant_id,     plant_name,     state,     region,     asset_type,     net_mwh,     MAX(settlement_day) OVER () AS max_day   FROM main.madan_gopal.gold_daily_generation ), g30 AS (   SELECT     settlement_day,     plant_id,     plant_name,     state,     region,     asset_type,     net_mwh,     max_day   FROM g   WHERE settlement_day BETWEEN date_sub(max_day, 29) AND max_day ) SELECT   settlement_day,   plant_id,   plant_name,   state,   region,   asset_type,   net_mwh,   SUM(net_mwh) OVER () AS net_mwh_last_30d FROM g30 ORDER BY settlement_day "
+      ]
+    },
+    {
+      "name": "ds_revenue",
+      "displayName": "Revenue Variance (Gold)",
+      "queryLines": [
+        "SELECT   settlement_day,   plant_id,   plant_name,   state,   region,   asset_type,   merchant_revenue_usd,   penalties_usd,   imbalance_charges_usd,   lost_revenue_usd,   total_variance_usd,   cumulative_impact_usd,   (lost_revenue_usd + penalties_usd + imbalance_charges_usd) AS impact_components_usd FROM main.madan_gopal.gold_revenue_variance ORDER BY settlement_day "
+      ]
+    },
+    {
+      "name": "ds_revenue_last30d_kpi",
+      "displayName": "KPI Window: Revenue Impact Components Last 30 Days",
+      "queryLines": [
+        "WITH r AS (   SELECT     settlement_day,     plant_id,     plant_name,     state,     region,     asset_type,     (lost_revenue_usd + penalties_usd + imbalance_charges_usd) AS impact_components_usd,     MAX(settlement_day) OVER () AS max_day   FROM main.madan_gopal.gold_revenue_variance ), r30 AS (   SELECT     settlement_day,     plant_id,     plant_name,     state,     region,     asset_type,     impact_components_usd,     max_day   FROM r   WHERE settlement_day BETWEEN date_sub(max_day, 29) AND max_day ) SELECT   settlement_day,   plant_id,   plant_name,   state,   region,   asset_type,   impact_components_usd,   SUM(impact_components_usd) OVER () AS impact_usd_last_30d FROM r30 ORDER BY settlement_day "
+      ]
+    },
+    {
+      "name": "ds_om",
+      "displayName": "O&M Costs (Gold)",
+      "queryLines": [
+        "SELECT   date,   plant_id,   plant_name,   state,   region,   asset_type,   equipment_type,   work_order_type,   vendor,   om_cost_usd,   labor_hours,   corrective_wo_count,   total_wo_count,   net_mwh,   cost_per_mwh_usd FROM main.madan_gopal.gold_om_costs ORDER BY date "
+      ]
+    },
+    {
+      "name": "ds_om_last30d_kpi",
+      "displayName": "KPI Window: O&M Cost per MWh Last 30 Days",
+      "queryLines": [
+        "WITH o AS (   SELECT     date,     plant_id,     plant_name,     state,     region,     asset_type,     om_cost_usd,     net_mwh,     MAX(date) OVER () AS max_day   FROM main.madan_gopal.gold_om_costs ), o30 AS (   SELECT     date,     plant_id,     plant_name,     state,     region,     asset_type,     om_cost_usd,     net_mwh,     max_day   FROM o   WHERE date BETWEEN date_sub(max_day, 29) AND max_day ) SELECT   date,   plant_id,   plant_name,   state,   region,   asset_type,   om_cost_usd,   net_mwh,   (SUM(om_cost_usd) OVER () / NULLIF(SUM(net_mwh) OVER (), 0)) AS om_cost_per_mwh_last_30d FROM o30 ORDER BY date "
+      ]
+    },
+    {
+      "name": "ds_availability",
+      "displayName": "Asset Availability (Gold)",
+      "queryLines": [
+        "SELECT   settlement_day,   plant_id,   plant_name,   state,   region,   asset_type,   equipment_type,   CASE     WHEN equipment_type = 'inverter' AND inverter_model IN ('XG-440','XG-360') THEN inverter_model     WHEN equipment_type = 'inverter' THEN 'Other'     ELSE 'Other'   END AS model_bucket,   inverter_model,   firmware_version,   availability_pct,   downtime_minutes,   trip_event_count,   derate_event_count FROM main.madan_gopal.gold_asset_availability ORDER BY settlement_day "
+      ]
+    },
+    {
+      "name": "ds_firmware_impact",
+      "displayName": "Firmware Impact Evidence (Gold)",
+      "queryLines": [
+        "SELECT   plant_id,   plant_name,   state,   region,   asset_type,   settlement_day,   inverter_model,   firmware_version_mode,   vendor_ticket_count,   rollout_flag,   hotfix_flag,   net_mwh_variance_total,   availability_pct,   downtime_minutes,   top_alarm_code,   top_downtime_cause,   corrective_wo_count FROM main.madan_gopal.gold_firmware_impact ORDER BY settlement_day "
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "renew_portfolio_exec",
+      "displayName": "ReNew Portfolio Performance and Firmware Impact",
+      "layout": [
+        {
+          "widget": {
+            "name": "header_overview",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# ReNew Portfolio Performance and Firmware Impact\n",
+                "Detect the 2025-11-21 portfolio net generation step-down, localize it to three Texas solar plants and the XG-440 inverter fleet, connect the timing to the 2025-11-20..2025-11-21 firmware rollout, and quantify the financial and O&M impact through 2025-12-15.\n"
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "portfolio_net_generation_mwh_last_30_days",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_generation_last30d_kpi",
+                  "fields": [
+                    {
+                      "name": "max(net_mwh_last_30d)",
+                      "expression": "MAX(`net_mwh_last_30d`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Portfolio Net Generation (MWh) - Last 30 Days",
+                "showDescription": true,
+                "description": "SUM(net_mwh) over the last 30 days ending on the latest date in filter context"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "max(net_mwh_last_30d)"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 4,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "revenue_variance_usd_last_30_days",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_revenue_last30d_kpi",
+                  "fields": [
+                    {
+                      "name": "max(impact_usd_last_30d)",
+                      "expression": "MAX(`impact_usd_last_30d`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "showDescription": true,
+                "title": "Revenue Variance (USD) - Last 30 Days",
+                "description": "SUM(lost_revenue_usd + penalties_usd + imbalance_charges_usd) over the last 30 days ending on the latest date in the filter context."
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "max(impact_usd_last_30d)"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 4,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "om_cost_per_mwh_last_30_days",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_om_last30d_kpi",
+                  "fields": [
+                    {
+                      "name": "max(om_cost_per_mwh_last_30d)",
+                      "expression": "MAX(`om_cost_per_mwh_last_30d`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "showDescription": true,
+                "title": "O&M Cost per MWh - Last 30 Days\"",
+                "description": "SUM(om_cost_usd) / NULLIF(SUM(net_mwh),0) over the last 30 days ending on the latest date in filter context"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "max(om_cost_per_mwh_last_30d)"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 8,
+            "y": 2,
+            "width": 4,
+            "height": 4
+          }
+        },
+        {
+          "widget": {
+            "name": "daily_net_generation_vs_30_day_baseline",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_generation",
+                  "fields": [
+                    {
+                      "name": "settlement_day",
+                      "expression": "`settlement_day`"
+                    },
+                    {
+                      "name": "sum(net_mwh)",
+                      "expression": "SUM(`net_mwh`)"
+                    },
+                    {
+                      "name": "sum(baseline_mwh)",
+                      "expression": "SUM(`baseline_mwh`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "settlement_day",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "axis": {
+                    "title": "Date"
+                  },
+                  "displayName": "Date"
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "title": "MWh / day"
+                  },
+                  "fields": [
+                    {
+                      "fieldName": "sum(net_mwh)",
+                      "displayName": "Net Generation (MWh)"
+                    },
+                    {
+                      "fieldName": "sum(baseline_mwh)",
+                      "displayName": "30-Day Baseline (MWh)"
+                    }
+                  ]
+                }
+              },
+              "frame": {
+                "title": "Daily Net Generation vs 30-Day Baseline",
+                "showTitle": true,
+                "description": "Step-change begins 2025-11-21: net generation drops below the trailing baseline and remains depressed into mid-December (weekday-heavy shortfall).",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "availability_by_equipment_type_and_model",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_availability",
+                  "fields": [
+                    {
+                      "name": "equipment_type",
+                      "expression": "`equipment_type`"
+                    },
+                    {
+                      "name": "model_bucket",
+                      "expression": "`model_bucket`"
+                    },
+                    {
+                      "name": "avg(availability_pct)",
+                      "expression": "AVG(`availability_pct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "equipment_type",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "axis": {
+                    "title": "Equipment Type"
+                  },
+                  "displayName": "Equipment Type"
+                },
+                "y": {
+                  "fieldName": "avg(availability_pct)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "title": "Availability (%)"
+                  },
+                  "displayName": "Avg Availability"
+                },
+                "color": {
+                  "fieldName": "model_bucket",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "displayName": "Model"
+                }
+              },
+              "frame": {
+                "title": "Availability by Equipment Type and Model",
+                "showTitle": true,
+                "description": "Inverter availability decline is concentrated in XG-440 post-2025-11-21; turbines remain near baseline.",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 6,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "cumulative_lost_revenue_and_penalties_through_date",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_revenue",
+                  "fields": [
+                    {
+                      "name": "settlement_day",
+                      "expression": "`settlement_day`"
+                    },
+                    {
+                      "name": "sum(impact_components_usd)",
+                      "expression": "SUM(`impact_components_usd`)"
+                    },
+                    {
+                      "name": "max(cumulative_impact_usd)",
+                      "expression": "MAX(`cumulative_impact_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "settlement_day",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "axis": {
+                    "title": "Date"
+                  },
+                  "displayName": "Date"
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "title": "Cumulative USD"
+                  },
+                  "fields": [
+                    {
+                      "fieldName": "max(cumulative_impact_usd)",
+                      "displayName": "Cumulative Impact (USD)"
+                    }
+                  ]
+                }
+              },
+              "frame": {
+                "title": "Cumulative Lost Revenue and Penalties (Through Date)",
+                "showTitle": true,
+                "description": "Accumulates from ~0 pre-event, rising steadily after 2025-11-21 toward ~$1.42M by 2025-12-15 (filterable by plant and asset_type).",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 11,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "om_spend_and_cost_per_mwh",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_om",
+                  "fields": [
+                    {
+                      "name": "date",
+                      "expression": "`date`"
+                    },
+                    {
+                      "name": "sum(om_cost_usd)",
+                      "expression": "SUM(`om_cost_usd`)"
+                    },
+                    {
+                      "name": "avg(cost_per_mwh_usd)",
+                      "expression": "AVG(`cost_per_mwh_usd`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "date",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "axis": {
+                    "title": "Date"
+                  },
+                  "displayName": "Date"
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "title": "USD / (USD per MWh)"
+                  },
+                  "fields": [
+                    {
+                      "fieldName": "sum(om_cost_usd)",
+                      "displayName": "O&M Spend (USD)"
+                    },
+                    {
+                      "fieldName": "avg(cost_per_mwh_usd)",
+                      "displayName": "Cost per MWh (USD/MWh)"
+                    }
+                  ]
+                }
+              },
+              "frame": {
+                "title": "O&M Spend and Cost per MWh",
+                "showTitle": true,
+                "description": "Shows daily O&M spend and elevated cost per MWh during the degraded production period after 2025-11-21 (incremental corrective work).",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 11,
+            "width": 6,
+            "height": 5
+          }
+        },
+        {
+          "widget": {
+            "name": "weekday_curtailment_and_lost_production_pattern",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_generation",
+                  "fields": [
+                    {
+                      "name": "settlement_day",
+                      "expression": "`settlement_day`"
+                    },
+                    {
+                      "name": "day_of_week_name",
+                      "expression": "`day_of_week_name`"
+                    },
+                    {
+                      "name": "sum(lost_mwh)",
+                      "expression": "SUM(`lost_mwh`)"
+                    },
+                    {
+                      "name": "sum(curtailment_window_minutes)",
+                      "expression": "SUM(`curtailment_window_minutes`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "settlement_day",
+                  "scale": {
+                    "type": "temporal"
+                  },
+                  "axis": {
+                    "title": "Date"
+                  },
+                  "displayName": "Date"
+                },
+                "y": {
+                  "fieldName": "day_of_week_name",
+                  "scale": {
+                    "type": "categorical"
+                  },
+                  "axis": {
+                    "title": "Day of Week"
+                  },
+                  "displayName": "Day of Week"
+                },
+                "color": {
+                  "fieldName": "sum(lost_mwh)",
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "displayName": "Lost MWh"
+                }
+              },
+              "frame": {
+                "title": "Weekday Curtailment and Lost Production Pattern",
+                "showTitle": true,
+                "description": "Heatmap-style view: lost_mwh concentrates on weekdays (Mon\u2013Fri) after 2025-11-21, aligned with stacked curtailment windows (curtailment_window_minutes).",
+                "showDescription": true
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 16,
+            "width": 12,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "affected_plants_and_top_downtime_causes",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_firmware_impact",
+                  "fields": [
+                    {
+                      "name": "plant_id",
+                      "expression": "`plant_id`"
+                    },
+                    {
+                      "name": "plant_name",
+                      "expression": "`plant_name`"
+                    },
+                    {
+                      "name": "state",
+                      "expression": "`state`"
+                    },
+                    {
+                      "name": "asset_type",
+                      "expression": "`asset_type`"
+                    },
+                    {
+                      "name": "net_mwh_variance_total",
+                      "expression": "`net_mwh_variance_total`"
+                    },
+                    {
+                      "name": "availability_pct",
+                      "expression": "`availability_pct`"
+                    },
+                    {
+                      "name": "downtime_minutes",
+                      "expression": "`downtime_minutes`"
+                    },
+                    {
+                      "name": "top_alarm_code",
+                      "expression": "`top_alarm_code`"
+                    },
+                    {
+                      "name": "top_downtime_cause",
+                      "expression": "`top_downtime_cause`"
+                    },
+                    {
+                      "name": "corrective_wo_count",
+                      "expression": "`corrective_wo_count`"
+                    },
+                    {
+                      "name": "vendor_ticket_count",
+                      "expression": "`vendor_ticket_count`"
+                    },
+                    {
+                      "name": "firmware_version_mode",
+                      "expression": "`firmware_version_mode`"
+                    }
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "showDescription": true,
+                "title": "Affected Plants and Top Downtime Causes\"",
+                "description": "Operational evidence table highlighting the Texas solar outliers with XG-440-related alarms/trips, higher downtime, and elevated corrective work orders."
+              },
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {
+                    "fieldName": "plant_id"
+                  },
+                  {
+                    "fieldName": "plant_name"
+                  },
+                  {
+                    "fieldName": "state"
+                  },
+                  {
+                    "fieldName": "asset_type"
+                  },
+                  {
+                    "fieldName": "net_mwh_variance_total"
+                  },
+                  {
+                    "fieldName": "availability_pct"
+                  },
+                  {
+                    "fieldName": "downtime_minutes"
+                  },
+                  {
+                    "fieldName": "top_alarm_code"
+                  },
+                  {
+                    "fieldName": "top_downtime_cause"
+                  },
+                  {
+                    "fieldName": "corrective_wo_count"
+                  },
+                  {
+                    "fieldName": "vendor_ticket_count"
+                  },
+                  {
+                    "fieldName": "firmware_version_mode"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 22,
+            "width": 12,
+            "height": 8
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    },
+    {
+      "name": "global_filters",
+      "displayName": "Global Filters",
+      "layout": [
+        {
+          "widget": {
+            "name": "filter_date_range",
+            "queries": [
+              {
+                "name": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb15489436f144034e8d50_settlement_day",
+                "query": {
+                  "datasetName": "ds_generation",
+                  "fields": [
+                    {
+                      "name": "settlement_day",
+                      "expression": "`settlement_day`"
+                    },
+                    {
+                      "name": "settlement_day_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb156fb6f61f81caf8b1ec_settlement_day",
+                "query": {
+                  "datasetName": "ds_revenue",
+                  "fields": [
+                    {
+                      "name": "settlement_day",
+                      "expression": "`settlement_day`"
+                    },
+                    {
+                      "name": "settlement_day_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb157590b6388c4aba1bac_date",
+                "query": {
+                  "datasetName": "ds_om",
+                  "fields": [
+                    {
+                      "name": "date",
+                      "expression": "`date`"
+                    },
+                    {
+                      "name": "date_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb157c9aaf83a4409c7575_settlement_day",
+                "query": {
+                  "datasetName": "ds_availability",
+                  "fields": [
+                    {
+                      "name": "settlement_day",
+                      "expression": "`settlement_day`"
+                    },
+                    {
+                      "name": "settlement_day_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb15818990e97511feb800_settlement_day",
+                "query": {
+                  "datasetName": "ds_firmware_impact",
+                  "fields": [
+                    {
+                      "name": "settlement_day",
+                      "expression": "`settlement_day`"
+                    },
+                    {
+                      "name": "settlement_day_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "showDescription": false,
+                "title": "Date Range"
+              },
+              "widgetType": "filter-date-range-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "settlement_day",
+                    "queryName": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb15489436f144034e8d50_settlement_day"
+                  },
+                  {
+                    "fieldName": "settlement_day",
+                    "queryName": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb156fb6f61f81caf8b1ec_settlement_day"
+                  },
+                  {
+                    "fieldName": "date",
+                    "queryName": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb157590b6388c4aba1bac_date"
+                  },
+                  {
+                    "fieldName": "settlement_day",
+                    "queryName": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb157c9aaf83a4409c7575_settlement_day"
+                  },
+                  {
+                    "fieldName": "settlement_day",
+                    "queryName": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb15818990e97511feb800_settlement_day"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "filter_state",
+            "queries": [
+              {
+                "name": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb15489436f144034e8d50_state",
+                "query": {
+                  "datasetName": "ds_generation",
+                  "fields": [
+                    {
+                      "name": "state",
+                      "expression": "`state`"
+                    },
+                    {
+                      "name": "state_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb156fb6f61f81caf8b1ec_state",
+                "query": {
+                  "datasetName": "ds_revenue",
+                  "fields": [
+                    {
+                      "name": "state",
+                      "expression": "`state`"
+                    },
+                    {
+                      "name": "state_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb157590b6388c4aba1bac_state",
+                "query": {
+                  "datasetName": "ds_om",
+                  "fields": [
+                    {
+                      "name": "state",
+                      "expression": "`state`"
+                    },
+                    {
+                      "name": "state_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb157c9aaf83a4409c7575_state",
+                "query": {
+                  "datasetName": "ds_availability",
+                  "fields": [
+                    {
+                      "name": "state",
+                      "expression": "`state`"
+                    },
+                    {
+                      "name": "state_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb15818990e97511feb800_state",
+                "query": {
+                  "datasetName": "ds_firmware_impact",
+                  "fields": [
+                    {
+                      "name": "state",
+                      "expression": "`state`"
+                    },
+                    {
+                      "name": "state_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "State (TX vs other)"
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "state",
+                    "queryName": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb15489436f144034e8d50_state"
+                  },
+                  {
+                    "fieldName": "state",
+                    "queryName": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb156fb6f61f81caf8b1ec_state"
+                  },
+                  {
+                    "fieldName": "state",
+                    "queryName": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb157590b6388c4aba1bac_state"
+                  },
+                  {
+                    "fieldName": "state",
+                    "queryName": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb157c9aaf83a4409c7575_state"
+                  },
+                  {
+                    "fieldName": "state",
+                    "queryName": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb15818990e97511feb800_state"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "filter_asset_type",
+            "queries": [
+              {
+                "name": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb15489436f144034e8d50_asset_type",
+                "query": {
+                  "datasetName": "ds_generation",
+                  "fields": [
+                    {
+                      "name": "asset_type",
+                      "expression": "`asset_type`"
+                    },
+                    {
+                      "name": "asset_type_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb156fb6f61f81caf8b1ec_asset_type",
+                "query": {
+                  "datasetName": "ds_revenue",
+                  "fields": [
+                    {
+                      "name": "asset_type",
+                      "expression": "`asset_type`"
+                    },
+                    {
+                      "name": "asset_type_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb157590b6388c4aba1bac_asset_type",
+                "query": {
+                  "datasetName": "ds_om",
+                  "fields": [
+                    {
+                      "name": "asset_type",
+                      "expression": "`asset_type`"
+                    },
+                    {
+                      "name": "asset_type_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb157c9aaf83a4409c7575_asset_type",
+                "query": {
+                  "datasetName": "ds_availability",
+                  "fields": [
+                    {
+                      "name": "asset_type",
+                      "expression": "`asset_type`"
+                    },
+                    {
+                      "name": "asset_type_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb15818990e97511feb800_asset_type",
+                "query": {
+                  "datasetName": "ds_firmware_impact",
+                  "fields": [
+                    {
+                      "name": "asset_type",
+                      "expression": "`asset_type`"
+                    },
+                    {
+                      "name": "asset_type_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Asset Type"
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "asset_type",
+                    "queryName": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb15489436f144034e8d50_asset_type"
+                  },
+                  {
+                    "fieldName": "asset_type",
+                    "queryName": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb156fb6f61f81caf8b1ec_asset_type"
+                  },
+                  {
+                    "fieldName": "asset_type",
+                    "queryName": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb157590b6388c4aba1bac_asset_type"
+                  },
+                  {
+                    "fieldName": "asset_type",
+                    "queryName": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb157c9aaf83a4409c7575_asset_type"
+                  },
+                  {
+                    "fieldName": "asset_type",
+                    "queryName": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb15818990e97511feb800_asset_type"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "filter_plant",
+            "queries": [
+              {
+                "name": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb15489436f144034e8d50_plant_name",
+                "query": {
+                  "datasetName": "ds_generation",
+                  "fields": [
+                    {
+                      "name": "plant_name",
+                      "expression": "`plant_name`"
+                    },
+                    {
+                      "name": "plant_name_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb156fb6f61f81caf8b1ec_plant_name",
+                "query": {
+                  "datasetName": "ds_revenue",
+                  "fields": [
+                    {
+                      "name": "plant_name",
+                      "expression": "`plant_name`"
+                    },
+                    {
+                      "name": "plant_name_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb157590b6388c4aba1bac_plant_name",
+                "query": {
+                  "datasetName": "ds_om",
+                  "fields": [
+                    {
+                      "name": "plant_name",
+                      "expression": "`plant_name`"
+                    },
+                    {
+                      "name": "plant_name_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb157c9aaf83a4409c7575_plant_name",
+                "query": {
+                  "datasetName": "ds_availability",
+                  "fields": [
+                    {
+                      "name": "plant_name",
+                      "expression": "`plant_name`"
+                    },
+                    {
+                      "name": "plant_name_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              },
+              {
+                "name": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb15818990e97511feb800_plant_name",
+                "query": {
+                  "datasetName": "ds_firmware_impact",
+                  "fields": [
+                    {
+                      "name": "plant_name",
+                      "expression": "`plant_name`"
+                    },
+                    {
+                      "name": "plant_name_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Plant"
+              },
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "plant_name",
+                    "queryName": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb15489436f144034e8d50_plant_name"
+                  },
+                  {
+                    "fieldName": "plant_name",
+                    "queryName": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb156fb6f61f81caf8b1ec_plant_name"
+                  },
+                  {
+                    "fieldName": "plant_name",
+                    "queryName": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb157590b6388c4aba1bac_plant_name"
+                  },
+                  {
+                    "fieldName": "plant_name",
+                    "queryName": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb157c9aaf83a4409c7575_plant_name"
+                  },
+                  {
+                    "fieldName": "plant_name",
+                    "queryName": "dashboards/01f11d227fc917f0994dd67e5cf99167/datasets/01f11d2580eb15818990e97511feb800_plant_name"
+                  }
+                ]
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 2,
+            "height": 2
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_GLOBAL_FILTERS"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
+    }
+  }
+}
