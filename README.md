@@ -1,6 +1,7 @@
 # ReNew_AI_Week - Databricks Asset Bundle
 
 ## Overview
+
 At ReNew Capital Partners, the Chief Investment Officer owns portfolio cash yield and distribution coverage across a diversified mix of wind and solar assets. Day to day, the CIO relies on a single portfolio view of availability, net energy production, and revenue variance to ensure the fund stays on track against merchant price exposure and operating cost plans.
 
 On 2025-11-21 that rhythm breaks: the portfolio 30-day average net generation drops from about 18,500 MWh/day to about 15,900 MWh/day and stays depressed into mid-December. The analyst team quickly proves the drop is not portfolio-wide. Wind remains stable, while three Texas solar plants show a step-change in inverter availability and a repeating weekday curtailment pattern that amplifies lost production during stacked constraint windows.
@@ -17,18 +18,17 @@ This demo has been tested on **Databricks on AWS us-west-2 (Oregon)**. Deploymen
 
 ## Deployment
 
-### Step 0 — Extract the Bundle
-
-Unzip the archive and navigate into the directory:
+### Step 0 — Clone the Repository
 
 ```bash
-unzip ReNew_AI_Week_dab_bundle.zip
-cd ReNew_AI_Week_dab_bundle
+git clone https://github.com/mgsmadangopal/madan_ai_demo.git
+cd madan_ai_demo
 ```
 
 ### Prerequisites
 
 1. **Databricks CLI v0.200+**: Install the latest version
+
    ```bash
    # macOS
    brew tap databricks/tap && brew install databricks
@@ -37,15 +37,19 @@ cd ReNew_AI_Week_dab_bundle
    ```
 
 2. **Authentication**: Configure your workspace credentials
+
    ```bash
    databricks configure --host https://<your-workspace-url> --token
    ```
+
    Or using OAuth:
+
    ```bash
    databricks auth login --host https://<your-workspace-url>
    ```
 
 3. **Workspace Access**: Ensure you have permissions for:
+
    - `main` catalog must already exist in Unity Catalog (DAB cannot create catalogs)
    - CREATE SCHEMA and CREATE VOLUME on the `main` catalog
    - SQL Warehouse access (a warehouse named `Shared Unity Catalog Serverless` must exist, or update `warehouse_name` in `databricks.yml`)
@@ -135,7 +139,7 @@ The `app/` folder contains a React + FastAPI Databricks App. If you want to depl
 
 ```bash
 cd app/frontend
-npm install        # restore node_modules (excluded from zip to reduce size)
+npm install        # restore node_modules (not included in the repo)
 npm run build      # rebuild the dist/ folder
 cd ../..
 databricks apps deploy --source-code-path ./app
@@ -186,47 +190,51 @@ The job environments use `client: '3'` (serverless compute). If serverless is no
 2. Update `warehouse_id` in `bricks_conf.json` to the target workspace's warehouse ID (`databricks warehouses list` to find it).
 3. The existing IDs in `bricks_conf.json` (`genie_space.config.id`, `knowledge_assistant.tile.tile_id`, etc.) are from the original workspace — `deploy_resources.py` recreates all resources idempotently; these fields are informational only.
 
+---
+
 ## Bundle Contents
 
 ### Core Files
+
 - `databricks.yml` - Asset bundle configuration defining jobs, dashboards, and deployment settings
-- `bricks_conf.json` - Agent brick configurations (Genie/KA/MAS) if applicable
+- `bricks_conf.json` - Agent brick configurations (Genie/KA/MAS)
 - `agent_bricks_service.py` - Service for managing agent brick resources (includes type definitions)
 - `deploy_resources.py` - Script to recreate agent bricks in the target workspace
 
 ### Data Generation
+
 - Python scripts using Faker library for realistic synthetic data
 - Configurable row counts, schemas, and business logic
 - Automatic Delta table creation in Unity Catalog
 
 ### SQL Transformations
+
 - `transformations.sql` - SQL transformations for data processing
 - Bronze (raw) → Silver (cleaned) → Gold (aggregated) medallion architecture
 - Views and tables for business analytics
 
 ### Agent Bricks
+
 This bundle includes AI agent resources:
 
-- **Genie Space** (ID: `01f11d1809eb1a109ecec68f8b72904b`)
-  - Natural language interface for data exploration
-  - Configured with table identifiers from your catalog/schema
-  - Sample questions and instructions included
-
-- **Knowledge Assistant** (ID: `b76cd4b8-40c1-4e7f-9ac8-59353fa35c73`)
-  - AI assistant with knowledge sources from Unity Catalog volumes
-  - Vector search-powered retrieval augmented generation (RAG)
-  - Example questions and guidelines included
+- **Genie Space** — Natural language interface for data exploration, configured with gold-layer table identifiers and sample questions
+- **Knowledge Assistant** — RAG assistant over PDF knowledge sources (firmware release notes, incident reports, dispatch runbooks)
+- **Multi-Agent Supervisor** — Routes questions between the Genie data agent and the Knowledge Assistant document agent
 
 ### Dashboards
-This bundle includes Lakeview dashboards:
-- **ReNew Portfolio Performance and Firmware Impact** - Business intelligence dashboard with visualizations
+
+- **ReNew Portfolio Performance and Firmware Impact** — Lakeview AI/BI dashboard with generation, availability, financial, and O&M visualizations
 
 ### PDF Documents
-This bundle includes PDF documents that will be uploaded to the workspace:
-- PDF files are automatically uploaded during bundle deployment via DAB artifacts
-- These PDFs are included in the bundle workspace path
-- You can manually copy them to Unity Catalog Volumes if needed for RAG scenarios
-- Example: Use Databricks Files API or `dbutils.fs.cp` to move files to a volume
+
+Ten vendor and operational documents uploaded to the Unity Catalog volume and indexed by the Knowledge Assistant:
+
+- Firmware release notes and change tickets
+- O&M incident postmortem
+- SCADA-to-CMMS dispatch runbooks
+- ERCOT settlement and imbalance guidance
+
+---
 
 ## Configuration
 
@@ -246,7 +254,10 @@ Edit `databricks.yml` to:
 - Change the SQL warehouse name (`variables.warehouse_name.default`)
 - Add a classic cluster spec to job tasks if serverless compute is unavailable
 
+---
+
 ## Key Questions This Demo Answers
+
 1. When did net generation first break from the 30-day baseline, and what was the magnitude of the drop (18,500 MWh/day to 15,900 MWh/day) starting 2025-11-21?
 2. Which plants and asset types contributed most to the variance after 2025-11-21, and did wind remain stable while three Texas solar plants drove the drop?
 3. How did availability change by equipment type and inverter model, and how much of the downtime is attributable to XG-440 inverters post-firmware rollout?
@@ -255,43 +266,39 @@ Edit `databricks.yml` to:
 6. How much incremental O&M spend was incurred through 2025-12-15 ($260K), and which corrective work order types and vendors drove it?
 7. What weekday curtailment pattern explains the recurring lost production, and how do stacked curtailment windows correlate with net MWh variance in the affected plants?
 
-## Deployment to New Workspaces
-
-This bundle is **portable** and can be deployed to any Databricks workspace:
-
-1. The bundle will recreate all resources in the target workspace
-2. Agent bricks (Genie/KA/MAS) are recreated from saved configurations in `bricks_conf.json`
-3. SQL transformations and data generation scripts are environment-agnostic
-4. Dashboards are deployed as Lakeview dashboard definitions
-
-Simply run `databricks bundle deploy` in any workspace where you have the required permissions.
+---
 
 ## Troubleshooting
 
 ### Common Issues
 
 **Bundle validation fails:**
+
 - Ensure `databricks.yml` has valid YAML syntax
 - Check that catalog and schema names are valid
 - Verify warehouse lookup matches an existing warehouse
 
 **Agent brick deployment fails:**
+
 - Check that `bricks_conf.json` exists and contains valid configurations
 - Ensure you have permissions to create Genie spaces, KA tiles, and MAS tiles
-- Verify vector search endpoint exists for Knowledge Assistants
+- Verify Foundation Model APIs are enabled in your region
 
 **SQL transformations fail:**
+
 - Ensure the catalog and schema exist in the target workspace
 - Check warehouse permissions and availability
 - Review SQL syntax for Unity Catalog compatibility (3-level namespace: `catalog.schema.table`)
 
 ### Getting Help
-- Review Databricks Asset Bundles documentation: https://docs.databricks.com/dev-tools/bundles/
-- Check the generated code in this bundle for implementation details
+
+- Databricks Asset Bundles documentation: [docs.databricks.com/dev-tools/bundles](https://docs.databricks.com/dev-tools/bundles/)
 - Contact your Databricks workspace administrator for permissions issues
 
-## Generated with AI Demo Generator
-🤖 This bundle was automatically created using the Databricks AI Demo Generator.
+---
 
-**Created**: 2026-03-11 06:44:18
-**User**: madan.gopal@databricks.com
+## Generated with AI Demo Generator
+
+This bundle was automatically created using the Databricks AI Demo Generator.
+
+**Created**: 2026-03-11 | **Author**: madan.gopal at databricks.com
